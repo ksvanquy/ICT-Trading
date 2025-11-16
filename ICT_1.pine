@@ -1,0 +1,394 @@
+//@version=6
+indicator("ICT Market Structure – Core Engine v6 (Updated OB - Fixed Box)", overlay=true)
+
+// =============================
+// 1. INPUTS
+// =============================
+var int swingLen = input.int(3, "Swing Length (L/R Bars)", minval=1)
+var float minBodyPct = input.float(0.35, "Min Body % For Displacement", minval=0.01, maxval=1.0)
+var bool deleteOB = input.bool(false, "Delete Previous OB on New BOS/MSS (Show only active OB)")
+
+
+// =============================
+// 2. SWING DETECTION
+// =============================
+var float lastSwingHigh = na
+var float lastSwingLow = na
+
+float ph = ta.pivothigh(high, swingLen, swingLen)
+float pl = ta.pivotlow(low, swingLen, swingLen)
+
+if not na(ph)
+    lastSwingHigh := ph
+
+if not na(pl)
+    lastSwingLow := pl
+
+int swingHighIdx = ta.valuewhen(not na(ph), bar_index, 0)
+int swingLowIdx = ta.valuewhen(not na(pl), bar_index, 0)
+
+// --- Vẽ các Swing (Tùy chọn) ---
+plot(lastSwingHigh, title="Last Swing High", color=color.new(color.red, 50), style=plot.style_stepline, editable=false)
+plot(lastSwingLow, title="Last Swing Low", color=color.new(color.green, 50), style=plot.style_stepline, editable=false)
+
+
+// =============================
+// 3. BOS DETECTION (Break of Structure)
+// =============================
+bool bullBOS = close > lastSwingHigh and bar_index > swingHighIdx
+bool bearBOS = close < lastSwingLow and bar_index > swingLowIdx
+
+
+// =============================
+// 4. DISPLACEMENT
+// =============================
+float body = math.abs(close - open)
+float candleRange = high - low
+bool isDisplacement = candleRange > 0 and (body / candleRange) > minBodyPct
+
+
+// =============================
+// 5. MSS (Shift In Market Structure)
+// =============================
+var string currentTrend = "Ranging"
+currentTrend := switch
+    bullBOS => "Bullish"
+    bearBOS => "Bearish"
+    => currentTrend
+
+bool bullMSS = currentTrend == "Bearish" and bullBOS and isDisplacement
+bool bearMSS = currentTrend == "Bullish" and bearBOS and isDisplacement
+
+if bullMSS
+    currentTrend := "Bullish"
+else if bearMSS
+    currentTrend := "Bearish"
+
+
+// =============================
+// 6. FVG (3 Candle ICT)
+// =============================
+bool bullFVG = low > high[2]
+bool bearFVG = high < low[2]
+
+// --- Vẽ FVG (Tùy chọn) ---
+if bullFVG
+    line.new(bar_index - 2, high[2], bar_index, low, color=color.new(color.green, 70), style=line.style_dashed, width=1)
+if bearFVG
+    line.new(bar_index - 2, low[2], bar_index, high, color=color.new(color.red, 70), style=line.style_dashed, width=1)
+
+
+// =============================
+// 7. ORDER BLOCK (Sau MSS/BOS + Displacement)
+// =============================
+
+// Khởi tạo các biến 'var' để lưu thông tin Order Block đang hoạt động
+var float bullOBHigh = na
+var float bullOBLow = na
+var float bearOBHigh = na
+var float bearOBLow = na
+var int bullOBStartIdx = na
+var int bearOBStartIdx = na
+
+// Biến lưu trữ đối tượng box (DUY NHẤT)
+var box bullOBBox = na
+var box bearOBBox = na
+
+
+// --- Logic xác định và lưu trữ OB ---
+
+// 1. Bullish OB: Tìm nến giảm cuối cùng trước cú phá vỡ/dịch chuyển tăng
+if (bullBOS or bullMSS) and isDisplacement
+    // SỬ DỤNG INPUT MỚI: Chỉ xóa OB cũ nếu deleteOB là TRUE
+    if deleteOB
+        if not na(box.get_left(bullOBBox))
+            box.delete(bullOBBox)
+        if not na(box.get_left(bearOBBox))
+            box.delete(bearOBBox)
+    
+    // Xóa các giá trị cũ
+    bearOBHigh := na
+    bearOBLow := na
+    bearOBStartIdx := na
+    bearOBBox := na // Xóa tham chiếu box
+
+    for i = 1 to 10 // Lặp lại 10 thanh nến trước đó
+        if close[i] < open[i]
+            // Lưu lại thông tin OB
+            bullOBHigh := high[i]
+            bullOBLow := low[i]
+            bullOBStartIdx := bar_index[i]
+            
+            // TẠO BOX MỚI (CHỈ MỘT LẦN) và lưu tham chiếu
+            bullOBBox := box.new(bullOBStartIdx, bullOBHigh, bar_index, bullOBLow, 
+                                 bgcolor=color.new(color.green, 85), 
+                                 border_color=color.new(color.green, 50), // Giảm độ đậm viền
+                                 text="Bull OB", 
+                                 text_color=color.new(color.white, 75), // ✨ ĐÃ SỬA: Màu chữ trắng mờ (75)
+                                 text_halign=text.align_left)
+            break
+
+// 2. Bearish OB: Tìm nến tăng cuối cùng trước cú phá vỡ/dịch chuyển giảm
+else if (bearBOS or bearMSS) and isDisplacement
+    // SỬ DỤNG INPUT MỚI: Chỉ xóa OB cũ nếu deleteOB là TRUE
+    if deleteOB
+        if not na(box.get_left(bullOBBox))
+            box.delete(bullOBBox)
+        if not na(box.get_left(bearOBBox))
+            box.delete(bearOBBox)
+
+    // Xóa các giá trị cũ
+    bullOBHigh := na
+    bullOBLow := na
+    bullOBStartIdx := na
+    bullOBBox := na // Xóa tham chiếu box
+    
+    for i = 1 to 10 // Lặp lại 10 thanh nến trước đó
+        if close[i] > open[i]
+            // Lưu lại thông tin OB
+            bearOBHigh := high[i]
+            bearOBLow := low[i]
+            bearOBStartIdx := bar_index[i]
+            
+            // TẠO BOX MỚI (CHỈ MỘT LẦN) và lưu tham chiếu
+            bearOBBox := box.new(bearOBStartIdx, bearOBHigh, bar_index, bearOBLow, 
+                                 bgcolor=color.new(color.red, 85), 
+                                 border_color=color.new(color.red, 50), // Giảm độ đậm viền
+                                 text="Bear OB", 
+                                 text_color=color.new(color.white, 75), // ✨ ĐÃ SỬA: Màu chữ trắng mờ (75)
+                                 text_halign=text.align_left)
+            break
+
+
+// --- Logic cập nhật và vô hiệu hóa OB ---
+
+// 1. Cập nhật và Vô hiệu hóa Bullish OB
+if not na(bullOBBox)
+    // Kéo dài box đến thanh nến hiện tại
+    box.set_right(bullOBBox, bar_index)
+
+    // Nếu giá phá vỡ dưới đáy OB, vô hiệu hóa (xóa) OB này
+    if low < bullOBLow
+        box.delete(bullOBBox)
+        bullOBBox := na 
+        bullOBHigh := na
+        bullOBLow := na
+        bullOBStartIdx := na
+
+
+// 2. Cập nhật và Vô hiệu hóa Bearish OB
+if not na(bearOBBox)
+    // Kéo dài box đến thanh nến hiện tại
+    box.set_right(bearOBBox, bar_index)
+
+    // Nếu giá phá vỡ trên đỉnh OB, vô hiệu hóa (xóa) OB này
+    if high > bearOBHigh
+        box.delete(bearOBBox)
+        bearOBBox := na 
+        bearOBHigh := na
+        bearOBLow := na
+        bearOBStartIdx := na
+
+
+// =============================
+// 8. PLOT LABELS (THEO PHONG CÁCH LUXALGO)
+// =============================
+
+// --- 1. Logic Lưu trữ Swing bị phá vỡ ---
+
+// Biến lưu trữ ID của đường kẻ BOS/MSS
+var line bullBOS_line_id = na
+var line bearBOS_line_id = na
+var label bullBOS_label_id = na
+var label bearBOS_label_id = na
+
+// Xác định các sự kiện BOS/MSS MỚI CHỈ XẢY RA TRÊN NẾN HIỆN TẠI
+bool isNewBullBOS = ta.cross(close, lastSwingHigh) and close > lastSwingHigh and bar_index > swingHighIdx
+bool isNewBearBOS = ta.cross(close, lastSwingLow) and close < lastSwingLow and bar_index > swingLowIdx
+bool isNewBullMSS = bullMSS and isNewBullBOS
+bool isNewBearMSS = bearMSS and isNewBearBOS
+
+// --- 2. Xử lý và Vẽ BOS/MSS Bullish ---
+
+if isNewBullBOS or isNewBullMSS
+    // 1. Xóa các đối tượng cũ trước khi vẽ cái mới
+    line.delete(bullBOS_line_id)
+    label.delete(bullBOS_label_id)
+    
+    // 2. Xác định nhãn và màu
+    string bos_text = isNewBullMSS ? "MSS ↑" : "BOS ↑"
+    color bos_color = isNewBullMSS ? color.green : color.blue
+    
+    // 3. VẼ ĐƯỜNG NGANG tại vị trí Swing High cũ bị phá vỡ
+    // Line kéo dài từ Swing High cũ đến nến hiện tại
+    bullBOS_line_id := line.new(swingHighIdx, lastSwingHigh[1], bar_index, lastSwingHigh[1], 
+                                 color=color.new(bos_color, 30), 
+                                 style=line.style_dotted, 
+                                 width=1, 
+                                 extend=extend.none)
+                                 
+    // 4. VẼ NHÃN (đặt gọn gàng ngay đầu đường kẻ)
+    bullBOS_label_id := label.new(swingHighIdx, lastSwingHigh[1], bos_text, 
+                                 style=label.style_label_down, 
+                                 color=color.new(bos_color, 0), 
+                                 textcolor=color.white, 
+                                 yloc=yloc.price) // yloc.price giúp nhãn nằm chính xác trên đường giá
+    
+    // 5. Xóa Bearish BOS/MSS cũ (nếu có sự đảo chiều)
+    line.delete(bearBOS_line_id)
+    label.delete(bearBOS_label_id)
+    bearBOS_line_id := na
+    bearBOS_label_id := na
+    
+
+// --- 3. Xử lý và Vẽ BOS/MSS Bearish ---
+
+if isNewBearBOS or isNewBearMSS
+    // 1. Xóa các đối tượng cũ trước khi vẽ cái mới
+    line.delete(bearBOS_line_id)
+    label.delete(bearBOS_label_id)
+    
+    // 2. Xác định nhãn và màu
+    string bos_text = isNewBearMSS ? "MSS ↓" : "BOS ↓"
+    color bos_color = isNewBearMSS ? color.red : color.blue
+
+    // 3. VẼ ĐƯỜNG NGANG tại vị trí Swing Low cũ bị phá vỡ
+    // Line kéo dài từ Swing Low cũ đến nến hiện tại
+    bearBOS_line_id := line.new(swingLowIdx, lastSwingLow[1], bar_index, lastSwingLow[1], 
+                                 color=color.new(bos_color, 30), 
+                                 style=line.style_dotted, 
+                                 width=1, 
+                                 extend=extend.none)
+
+    // 4. VẼ NHÃN (đặt gọn gàng ngay đầu đường kẻ)
+    bearBOS_label_id := label.new(swingLowIdx, lastSwingLow[1], bos_text, 
+                                 style=label.style_label_up, 
+                                 color=color.new(bos_color, 0), 
+                                 textcolor=color.white, 
+                                 yloc=yloc.price) // yloc.price giúp nhãn nằm chính xác trên đường giá
+    
+    // 5. Xóa Bullish BOS/MSS cũ (nếu có sự đảo chiều)
+    line.delete(bullBOS_line_id)
+    label.delete(bullBOS_label_id)
+    bullBOS_line_id := na
+    bullBOS_label_id := na
+
+
+// --- 4. Hiển thị Xu hướng Hiện tại (Dùng Bảng) ---
+
+// Tạo hoặc cập nhật bảng ở góc trên bên phải
+var table trendTable = table.new(position.top_right, 1, 1, bgcolor=color.new(color.black, 90))
+
+// Xác định màu sắc cho trạng thái
+color trendColor = switch currentTrend
+    "Bullish" => color.green
+    "Bearish" => color.red
+    => color.gray
+
+// Cập nhật nội dung bảng (Viết trên một dòng để tránh lỗi)
+table.cell(trendTable, 0, 0, text="TREND: " + currentTrend, text_color=color.white, bgcolor=trendColor, width=10)
+    
+plot(na, title="Current Trend", color=color.new(color.white, 100))
+
+// =============================
+// 9. TRADE SETUP LOGIC (Phần Bổ Sung)
+// =============================
+
+// --- Logic kiểm tra Vùng Giá Trị (OB/FVG) ---
+// Note: Chúng ta sẽ đơn giản hóa bằng cách chỉ kiểm tra OB/FVG đang hoạt động và giá hồi về.
+
+// Kích hoạt Setup: Kiểm tra xem nến hiện tại có nằm trong vùng OB đang hoạt động không
+bool isBullishSetup = currentTrend == "Bullish" and not na(bullOBBox) and low <= bullOBHigh and high >= bullOBLow
+bool isBearishSetup = currentTrend == "Bearish" and not na(bearOBBox) and high >= bearOBLow and low <= bearOBHigh
+
+// Các biến lưu trữ Setup
+var float setupEntry = na
+var float setupSL = na
+var string setupType = "None" // "Buy" / "Sell"
+
+// --- 1. SETUP MUA (BUY) ---
+if isBullishSetup and setupType != "Buy" // Tránh vẽ lại liên tục
+    // Entry: Tại đỉnh của Bullish OB (điểm giá cao nhất mà OB chạm đến)
+    setupEntry := bullOBHigh
+    // SL (Stop Loss): Dưới đáy của Bullish OB
+    setupSL := bullOBLow
+    setupType := "Buy"
+
+// --- 2. SETUP BÁN (SELL) ---
+else if isBearishSetup and setupType != "Sell" // Tránh vẽ lại liên tục
+    // Entry: Tại đáy của Bearish OB (điểm giá thấp nhất mà OB chạm đến)
+    setupEntry := bearOBLow
+    // SL (Stop Loss): Trên đỉnh của Bearish OB
+    setupSL := bearOBHigh
+    setupType := "Sell"
+
+// --- 3. Vô hiệu hóa Setup khi giá phá vỡ SL hoặc có BOS/MSS mới ---
+if setupType == "Buy" and low < setupSL
+    setupType := "None"
+    setupEntry := na
+    setupSL := na
+else if setupType == "Sell" and high > setupSL
+    setupType := "None"
+    setupEntry := na
+    setupSL := na
+else if (isNewBullBOS or isNewBullMSS) or (isNewBearBOS or isNewBearMSS) // Hủy setup cũ khi có cấu trúc mới
+    setupType := "None"
+    setupEntry := na
+    setupSL := na
+
+// =============================
+// 10. PLOT TRADE SETUP (Phần Bổ Sung)
+// =============================
+
+// Biến lưu ID line
+var line entryLineID = na
+var line slLineID = na
+var label entryLabelID = na
+var label slLabelID = na
+
+// --- Xóa Setup cũ ---
+line.delete(entryLineID)
+line.delete(slLineID)
+label.delete(entryLabelID)
+label.delete(slLabelID)
+
+// --- Vẽ Setup mới ---
+if setupType == "Buy"
+    // Màu xanh lá cho Setup Buy
+    setupColor = color.green
+    
+    // Vẽ Entry
+    entryLineID := line.new(bar_index, setupEntry, bar_index + 1, setupEntry, color=color.new(setupColor, 10), style=line.style_solid, width=2, extend=extend.right)
+    entryLabelID := label.new(bar_index + 1, setupEntry, "ENTRY", 
+                              color=color.new(setupColor, 0), textcolor=color.white, style=label.style_label_left, yloc=yloc.price)
+    
+    // Vẽ Stop Loss (SL)
+    slLineID := line.new(bar_index, setupSL, bar_index + 1, setupSL, 
+                         color=color.new(setupColor, 50), style=line.style_dotted, width=1, extend=extend.right)
+    slLabelID := label.new(bar_index + 1, setupSL, "SL", color=color.new(setupColor, 50), textcolor=color.white, style=label.style_label_left, yloc=yloc.price)
+
+else if setupType == "Sell"
+    // Màu đỏ cho Setup Sell
+    setupColor = color.red
+    
+    // Vẽ Entry
+    entryLineID := line.new(bar_index, setupEntry, bar_index + 1, setupEntry, color=color.new(setupColor, 10), style=line.style_solid, width=2, extend=extend.right)
+    entryLabelID := label.new(bar_index + 1, setupEntry, "ENTRY", color=color.new(setupColor, 0), textcolor=color.white, style=label.style_label_left, yloc=yloc.price)
+    
+    // Vẽ Stop Loss (SL)
+    slLineID := line.new(bar_index, setupSL, bar_index + 1, setupSL,color=color.new(setupColor, 50), style=line.style_dotted, width=1, extend=extend.right)
+    slLabelID := label.new(bar_index + 1, setupSL, "SL", color=color.new(setupColor, 50), textcolor=color.white, style=label.style_label_left, yloc=yloc.price)
+
+// --- Hiển thị Setup trên Bảng (Cập nhật Bảng Trend) ---
+color trendColorUpdated = switch setupType
+    "Buy" => color.green
+    "Sell" => color.red
+    => trendColor // Dùng màu cũ nếu không có setup
+
+string setupText = switch setupType
+    "Buy" => "SETUP: BUY @ " + str.tostring(setupEntry, format.mintick) + " (SL: " + str.tostring(setupSL, format.mintick) + ")"
+    "Sell" => "SETUP: SELL @ " + str.tostring(setupEntry, format.mintick) + " (SL: " + str.tostring(setupSL, format.mintick) + ")"
+    => "SETUP: NONE"
+
+string mainText = "TREND: " + currentTrend + "\n" + setupText
+table.cell(trendTable, 0, 0, text=mainText, text_color=color.white, bgcolor=trendColorUpdated, width=10)
