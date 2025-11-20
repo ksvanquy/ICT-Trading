@@ -9,6 +9,9 @@ indicator("ICT Multi-Timeframe Market Structure - Clean", "ICT-MTF-Clean", overl
 string tf1 = input.timeframe("15", "Lower Timeframe", group="Multi-Timeframe Settings")
 string tf2 = input.timeframe("1H", "Higher Timeframe 1", group="Multi-Timeframe Settings")
 string tf3 = input.timeframe("4H", "Higher Timeframe 2", group="Multi-Timeframe Settings")
+string tf4 = input.timeframe("1D", "Daily Timeframe", group="Multi-Timeframe Settings")
+string tf5 = input.timeframe("1W", "Weekly Timeframe", group="Multi-Timeframe Settings")
+string tf6 = input.timeframe("1M", "Monthly Timeframe", group="Multi-Timeframe Settings")
 
 // Structure Detection Settings
 int swingLength = input.int(5, "Swing Detection Length", minval=3, maxval=20, group="Structure Settings")
@@ -20,6 +23,9 @@ bool showSwings = input.bool(false, "Show Swing Points", group="Structure Settin
 bool showTF1 = input.bool(false, "Show Lower TF Structure", group="Display Settings")
 bool showTF2 = input.bool(true, "Show Higher TF 1 Structure", group="Display Settings")
 bool showTF3 = input.bool(true, "Show Higher TF 2 Structure", group="Display Settings")
+bool showTF4 = input.bool(true, "Show Daily Structure", group="Display Settings")
+bool showTF5 = input.bool(false, "Show Weekly Structure", group="Display Settings")
+bool showTF6 = input.bool(false, "Show Monthly Structure", group="Display Settings")
 
 // Visual Settings
 color mssColorBull = input.color(color.new(color.green, 0), "MSS Bullish Color", group="Colors")
@@ -90,6 +96,8 @@ convertTimeframe(tf) =>
         "1H" => "60"
         "4H" => "240"
         "1D" => "1D"
+        "1W" => "1W"
+        "1M" => "1M"
         => tf
 
 // Multi-Timeframe Structure (Simplified)
@@ -123,6 +131,12 @@ var string tf2MSS = ""
 var int tf2Trend = 0
 var string tf3MSS = ""
 var int tf3Trend = 0
+var string tf4MSS = ""
+var int tf4Trend = 0
+var string tf5MSS = ""
+var int tf5Trend = 0
+var string tf6MSS = ""
+var int tf6Trend = 0
 
 if showTF2
     [tempMSS2, tempTrend2] = getMultiTimeframeStructure(tf2)
@@ -133,6 +147,21 @@ if showTF3
     [tempMSS3, tempTrend3] = getMultiTimeframeStructure(tf3)
     tf3MSS := tempMSS3
     tf3Trend := tempTrend3
+
+if showTF4
+    [tempMSS4, tempTrend4] = getMultiTimeframeStructure(tf4)
+    tf4MSS := tempMSS4
+    tf4Trend := tempTrend4
+
+if showTF5
+    [tempMSS5, tempTrend5] = getMultiTimeframeStructure(tf5)
+    tf5MSS := tempMSS5
+    tf5Trend := tempTrend5
+
+if showTF6
+    [tempMSS6, tempTrend6] = getMultiTimeframeStructure(tf6)
+    tf6MSS := tempMSS6
+    tf6Trend := tempTrend6
 
 // =============================================================================
 // VISUALIZATIONS (CLEAN)
@@ -203,6 +232,50 @@ if showMSSLines and showTF3 and tf3MSS != "" and bar_index > lastTF3Bar + 20
               size=size.tiny)
     lastTF3Bar := bar_index
 
+// MSS Lines - Daily, Weekly, Monthly
+var int lastTF4Bar = 0
+var int lastTF5Bar = 0
+var int lastTF6Bar = 0
+
+if showMSSLines and showTF4 and tf4MSS != "" and bar_index > lastTF4Bar + 25
+    tf4Price = tf4MSS == "MSS↑" ? high * 1.007 : low * 0.993
+    line.new(bar_index, tf4Price, bar_index + lineLength + 5, tf4Price, 
+             color=color.new(getLabelColor(tf4MSS), lineTransparency - 10), 
+             width=2, 
+             style=line.style_solid)
+    label.new(bar_index + lineLength + 6, tf4Price, "MSS(" + tf4 + ")", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(tf4MSS), 
+              style=label.style_label_left,
+              size=size.small)
+    lastTF4Bar := bar_index
+
+if showMSSLines and showTF5 and tf5MSS != "" and bar_index > lastTF5Bar + 35
+    tf5Price = tf5MSS == "MSS↑" ? high * 1.009 : low * 0.991
+    line.new(bar_index, tf5Price, bar_index + lineLength + 10, tf5Price, 
+             color=color.new(getLabelColor(tf5MSS), lineTransparency - 20), 
+             width=3, 
+             style=line.style_dashed)
+    label.new(bar_index + lineLength + 11, tf5Price, "MSS(" + tf5 + ")", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(tf5MSS), 
+              style=label.style_label_left,
+              size=size.small)
+    lastTF5Bar := bar_index
+
+if showMSSLines and showTF6 and tf6MSS != "" and bar_index > lastTF6Bar + 50
+    tf6Price = tf6MSS == "MSS↑" ? high * 1.011 : low * 0.989
+    line.new(bar_index, tf6Price, bar_index + lineLength + 15, tf6Price, 
+             color=color.new(getLabelColor(tf6MSS), lineTransparency - 30), 
+             width=4, 
+             style=line.style_dotted)
+    label.new(bar_index + lineLength + 16, tf6Price, "MSS(" + tf6 + ")", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(tf6MSS), 
+              style=label.style_label_left,
+              size=size.normal)
+    lastTF6Bar := bar_index
+
 // BOS Lines
 var int lastBOSBar = 0
 if showBOSLines and showBOS and currentBOS != "" and bar_index > lastBOSBar + 5
@@ -257,7 +330,8 @@ if showSWPLines and showSwings and array.size(currentSwingLows) > 0
 
 var table structureTable = na
 if showTable
-    structureTable := table.new(position.top_right, 3, 4, bgcolor=color.new(color.black, 10), border_width=1, border_color=color.new(color.white, 50))
+    tableRows = 1 + (showTF2 ? 1 : 0) + (showTF3 ? 1 : 0) + (showTF4 ? 1 : 0) + (showTF5 ? 1 : 0) + (showTF6 ? 1 : 0)
+    structureTable := table.new(position.top_right, 3, tableRows + 1, bgcolor=color.new(color.black, 10), border_width=1, border_color=color.new(color.white, 50))
 
 if barstate.islast and showTable
     // Headers - Dark theme friendly
@@ -272,21 +346,52 @@ if barstate.islast and showTable
     table.cell(structureTable, 1, 1, currentStructure, text_color=currentTrend > 0 ? color.lime : (currentTrend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
     table.cell(structureTable, 2, 1, currentTrendSymbol, text_color=currentTrend > 0 ? color.lime : (currentTrend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
     
+    // Dynamic row management
+    var int currentRow = 2
+    
     // TF2 - Enhanced colors for dark theme
     if showTF2
         tf2Structure = tf2MSS != "" ? tf2MSS : "-"
         tf2TrendSymbol = tf2Trend > 0 ? "↑" : (tf2Trend < 0 ? "↓" : "-")
-        table.cell(structureTable, 0, 2, tf2, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
-        table.cell(structureTable, 1, 2, tf2Structure, text_color=tf2Trend > 0 ? color.lime : (tf2Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
-        table.cell(structureTable, 2, 2, tf2TrendSymbol, text_color=tf2Trend > 0 ? color.lime : (tf2Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 0, currentRow, tf2, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, currentRow, tf2Structure, text_color=tf2Trend > 0 ? color.lime : (tf2Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, currentRow, tf2TrendSymbol, text_color=tf2Trend > 0 ? color.lime : (tf2Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        currentRow := currentRow + 1
     
     // TF3 - Enhanced colors for dark theme  
     if showTF3
         tf3Structure = tf3MSS != "" ? tf3MSS : "-"
         tf3TrendSymbol = tf3Trend > 0 ? "↑" : (tf3Trend < 0 ? "↓" : "-")
-        table.cell(structureTable, 0, 3, tf3, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
-        table.cell(structureTable, 1, 3, tf3Structure, text_color=tf3Trend > 0 ? color.lime : (tf3Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
-        table.cell(structureTable, 2, 3, tf3TrendSymbol, text_color=tf3Trend > 0 ? color.lime : (tf3Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 0, currentRow, tf3, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, currentRow, tf3Structure, text_color=tf3Trend > 0 ? color.lime : (tf3Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, currentRow, tf3TrendSymbol, text_color=tf3Trend > 0 ? color.lime : (tf3Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        currentRow := currentRow + 1
+    
+    // TF4 - Daily
+    if showTF4
+        tf4Structure = tf4MSS != "" ? tf4MSS : "-"
+        tf4TrendSymbol = tf4Trend > 0 ? "↑" : (tf4Trend < 0 ? "↓" : "-")
+        table.cell(structureTable, 0, currentRow, tf4, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, currentRow, tf4Structure, text_color=tf4Trend > 0 ? color.lime : (tf4Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, currentRow, tf4TrendSymbol, text_color=tf4Trend > 0 ? color.lime : (tf4Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        currentRow := currentRow + 1
+    
+    // TF5 - Weekly
+    if showTF5
+        tf5Structure = tf5MSS != "" ? tf5MSS : "-"
+        tf5TrendSymbol = tf5Trend > 0 ? "↑" : (tf5Trend < 0 ? "↓" : "-")
+        table.cell(structureTable, 0, currentRow, tf5, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, currentRow, tf5Structure, text_color=tf5Trend > 0 ? color.lime : (tf5Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, currentRow, tf5TrendSymbol, text_color=tf5Trend > 0 ? color.lime : (tf5Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        currentRow := currentRow + 1
+    
+    // TF6 - Monthly
+    if showTF6
+        tf6Structure = tf6MSS != "" ? tf6MSS : "-"
+        tf6TrendSymbol = tf6Trend > 0 ? "↑" : (tf6Trend < 0 ? "↓" : "-")
+        table.cell(structureTable, 0, currentRow, tf6, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, currentRow, tf6Structure, text_color=tf6Trend > 0 ? color.lime : (tf6Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, currentRow, tf6TrendSymbol, text_color=tf6Trend > 0 ? color.lime : (tf6Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
 
 // =============================================================================
 // ALERTS (SIMPLIFIED)
