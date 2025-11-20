@@ -27,11 +27,12 @@ color mssColorBear = input.color(color.new(color.red, 0), "MSS Bearish Color", g
 color bosColorBull = input.color(color.new(color.blue, 20), "BOS Bullish Color", group="Colors")
 color bosColorBear = input.color(color.new(color.orange, 20), "BOS Bearish Color", group="Colors")
 
-bool showLines = input.bool(true, "Show MSS Lines", group="Visual Settings")
-bool showLabels = input.bool(false, "Show MSS Labels", group="Visual Settings")
-int lineLength = input.int(20, "Line Length (bars)", minval=5, maxval=100, group="Visual Settings")
+bool showMSSLines = input.bool(true, "Show MSS Lines", group="Visual Settings")
+bool showBOSLines = input.bool(true, "Show BOS Lines", group="Visual Settings")
+bool showSWPLines = input.bool(true, "Show Swing Point Lines", group="Visual Settings")
+int lineLength = input.int(15, "Line Length (bars)", minval=5, maxval=50, group="Visual Settings")
+int lineTransparency = input.int(50, "Line Transparency", minval=0, maxval=90, group="Visual Settings")
 bool showTable = input.bool(true, "Show Structure Table", group="Visual Settings")
-bool compactMode = input.bool(true, "Compact Mode (Less Clutter)", group="Visual Settings")
 
 // =============================================================================
 // FUNCTIONS
@@ -153,78 +154,102 @@ getLabelColor(signal) =>
 
 // MSS Lines - Current Timeframe
 var int lastMSSBar = 0
-if showLines and showMSS and currentMSS != "" and bar_index > lastMSSBar + 10
-    mssPrice = currentMSS == "MSS↑" ? high : low
+if showMSSLines and showMSS and currentMSS != "" and bar_index > lastMSSBar + 8
+    mssPrice = currentMSS == "MSS↑" ? high * 1.001 : low * 0.999
+    // Thin horizontal line
     line.new(bar_index, mssPrice, bar_index + lineLength, mssPrice, 
-             color=getLabelColor(currentMSS), 
-             width=2, 
+             color=color.new(getLabelColor(currentMSS), lineTransparency), 
+             width=1, 
              style=line.style_solid)
-    if showLabels
-        label.new(bar_index + lineLength/2, mssPrice, currentMSS, 
-                  color=color.new(getLabelColor(currentMSS), 80), 
-                  textcolor=color.white, 
-                  style=label.style_label_center,
-                  size=size.small)
+    // MSS Symbol
+    label.new(bar_index + lineLength + 1, mssPrice, "MSS", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(currentMSS), 
+              style=label.style_label_left,
+              size=size.tiny)
     lastMSSBar := bar_index
 
 // MSS Lines - Higher Timeframes
 var int lastTF2Bar = 0
 var int lastTF3Bar = 0
 
-if showLines and showTF2 and tf2MSS != "" and bar_index > lastTF2Bar + 20
-    tf2Price = tf2MSS == "MSS↑" ? high * 1.002 : low * 0.998
+if showMSSLines and showTF2 and tf2MSS != "" and bar_index > lastTF2Bar + 15
+    tf2Price = tf2MSS == "MSS↑" ? high * 1.003 : low * 0.997
+    // Thin dashed line
     line.new(bar_index, tf2Price, bar_index + lineLength, tf2Price, 
-             color=color.new(getLabelColor(tf2MSS), 30), 
-             width=3, 
+             color=color.new(getLabelColor(tf2MSS), lineTransparency), 
+             width=1, 
              style=line.style_dashed)
-    if showLabels
-        label.new(bar_index + lineLength/2, tf2Price, tf2MSS + "(" + tf2 + ")", 
-                  color=color.new(getLabelColor(tf2MSS), 70), 
-                  textcolor=color.white, 
-                  style=label.style_label_center,
-                  size=size.tiny)
+    // MSS Symbol with timeframe
+    label.new(bar_index + lineLength + 1, tf2Price, "MSS(" + tf2 + ")", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(tf2MSS), 
+              style=label.style_label_left,
+              size=size.tiny)
     lastTF2Bar := bar_index
 
-if showLines and showTF3 and tf3MSS != "" and bar_index > lastTF3Bar + 30
-    tf3Price = tf3MSS == "MSS↑" ? high * 1.004 : low * 0.996
+if showMSSLines and showTF3 and tf3MSS != "" and bar_index > lastTF3Bar + 20
+    tf3Price = tf3MSS == "MSS↑" ? high * 1.005 : low * 0.995
+    // Thin dotted line
     line.new(bar_index, tf3Price, bar_index + lineLength, tf3Price, 
-             color=getLabelColor(tf3MSS), 
-             width=4, 
+             color=color.new(getLabelColor(tf3MSS), lineTransparency), 
+             width=1, 
              style=line.style_dotted)
-    if showLabels
-        label.new(bar_index + lineLength/2, tf3Price, tf3MSS + "(" + tf3 + ")", 
-                  color=getLabelColor(tf3MSS), 
-                  textcolor=color.white, 
-                  style=label.style_label_center,
-                  size=size.small)
+    // MSS Symbol with timeframe
+    label.new(bar_index + lineLength + 1, tf3Price, "MSS(" + tf3 + ")", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(tf3MSS), 
+              style=label.style_label_left,
+              size=size.tiny)
     lastTF3Bar := bar_index
 
-// BOS Lines (Optional)
+// BOS Lines
 var int lastBOSBar = 0
-if showLines and showBOS and currentBOS != "" and bar_index > lastBOSBar + 5
-    bosPrice = currentBOS == "BOS↑" ? high * 1.001 : low * 0.999
+if showBOSLines and showBOS and currentBOS != "" and bar_index > lastBOSBar + 5
+    bosPrice = currentBOS == "BOS↑" ? high * 1.0005 : low * 0.9995
+    // Thin horizontal line
     line.new(bar_index, bosPrice, bar_index + lineLength/2, bosPrice, 
-             color=color.new(getLabelColor(currentBOS), 40), 
+             color=color.new(getLabelColor(currentBOS), lineTransparency + 20), 
              width=1, 
              style=line.style_solid)
+    // BOS Symbol
+    label.new(bar_index + lineLength/2 + 1, bosPrice, "BOS", 
+              color=color.new(color.white, 100), 
+              textcolor=getLabelColor(currentBOS), 
+              style=label.style_label_left,
+              size=size.tiny)
     lastBOSBar := bar_index
 
-// Swing Points (Optional)
-showSwingHigh = false
-showSwingLow = false
-
-if showSwings and array.size(currentSwingHighs) > 0
+// Swing Points Lines
+if showSWPLines and showSwings and array.size(currentSwingHighs) > 0
     recentHigh = array.get(currentSwingHighs, array.size(currentSwingHighs) - 1)
     if high == recentHigh
-        showSwingHigh := true
+        // Thin line at swing high
+        line.new(bar_index, high, bar_index + lineLength/3, high, 
+                 color=color.new(color.red, lineTransparency + 30), 
+                 width=1, 
+                 style=line.style_solid)
+        // SWP Symbol
+        label.new(bar_index + lineLength/3 + 1, high, "SWP↑", 
+                  color=color.new(color.white, 100), 
+                  textcolor=color.new(color.red, 20), 
+                  style=label.style_label_left,
+                  size=size.tiny)
 
-if showSwings and array.size(currentSwingLows) > 0
+if showSWPLines and showSwings and array.size(currentSwingLows) > 0
     recentLow = array.get(currentSwingLows, array.size(currentSwingLows) - 1)
     if low == recentLow
-        showSwingLow := true
-
-plotshape(showSwingHigh, "Swing High", shape.triangledown, location.abovebar, color.new(color.red, 50), size=size.tiny)
-plotshape(showSwingLow, "Swing Low", shape.triangleup, location.belowbar, color.new(color.green, 50), size=size.tiny)
+        // Thin line at swing low
+        line.new(bar_index, low, bar_index + lineLength/3, low, 
+                 color=color.new(color.green, lineTransparency + 30), 
+                 width=1, 
+                 style=line.style_solid)
+        // SWP Symbol
+        label.new(bar_index + lineLength/3 + 1, low, "SWP↓", 
+                  color=color.new(color.white, 100), 
+                  textcolor=color.new(color.green, 20), 
+                  style=label.style_label_left,
+                  size=size.tiny)
 
 // =============================================================================
 // COMPACT TABLE
@@ -232,36 +257,36 @@ plotshape(showSwingLow, "Swing Low", shape.triangleup, location.belowbar, color.
 
 var table structureTable = na
 if showTable
-    structureTable := table.new(position.top_right, 3, 4, bgcolor=color.new(color.white, 90), border_width=1)
+    structureTable := table.new(position.top_right, 3, 4, bgcolor=color.new(color.black, 10), border_width=1, border_color=color.new(color.white, 50))
 
 if barstate.islast and showTable
-    // Headers
-    table.cell(structureTable, 0, 0, "TF", text_color=color.black, text_size=size.tiny, bgcolor=color.new(color.gray, 70))
-    table.cell(structureTable, 1, 0, "MSS", text_color=color.black, text_size=size.tiny, bgcolor=color.new(color.gray, 70))
-    table.cell(structureTable, 2, 0, "Trend", text_color=color.black, text_size=size.tiny, bgcolor=color.new(color.gray, 70))
+    // Headers - Dark theme friendly
+    table.cell(structureTable, 0, 0, "TF", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.gray, 20))
+    table.cell(structureTable, 1, 0, "MSS", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.gray, 20))
+    table.cell(structureTable, 2, 0, "Trend", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.gray, 20))
     
-    // Current
+    // Current - White text for dark background
     currentStructure = currentMSS != "" ? currentMSS : "-"
     currentTrendSymbol = currentTrend > 0 ? "↑" : (currentTrend < 0 ? "↓" : "-")
-    table.cell(structureTable, 0, 1, str.tostring(timeframe.period), text_color=color.black, text_size=size.tiny)
-    table.cell(structureTable, 1, 1, currentStructure, text_color=currentTrend > 0 ? color.green : (currentTrend < 0 ? color.red : color.gray), text_size=size.tiny)
-    table.cell(structureTable, 2, 1, currentTrendSymbol, text_color=currentTrend > 0 ? color.green : (currentTrend < 0 ? color.red : color.gray), text_size=size.tiny)
+    table.cell(structureTable, 0, 1, str.tostring(timeframe.period), text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+    table.cell(structureTable, 1, 1, currentStructure, text_color=currentTrend > 0 ? color.lime : (currentTrend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+    table.cell(structureTable, 2, 1, currentTrendSymbol, text_color=currentTrend > 0 ? color.lime : (currentTrend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
     
-    // TF2
+    // TF2 - Enhanced colors for dark theme
     if showTF2
         tf2Structure = tf2MSS != "" ? tf2MSS : "-"
         tf2TrendSymbol = tf2Trend > 0 ? "↑" : (tf2Trend < 0 ? "↓" : "-")
-        table.cell(structureTable, 0, 2, tf2, text_color=color.black, text_size=size.tiny)
-        table.cell(structureTable, 1, 2, tf2Structure, text_color=tf2Trend > 0 ? color.green : (tf2Trend < 0 ? color.red : color.gray), text_size=size.tiny)
-        table.cell(structureTable, 2, 2, tf2TrendSymbol, text_color=tf2Trend > 0 ? color.green : (tf2Trend < 0 ? color.red : color.gray), text_size=size.tiny)
+        table.cell(structureTable, 0, 2, tf2, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, 2, tf2Structure, text_color=tf2Trend > 0 ? color.lime : (tf2Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, 2, tf2TrendSymbol, text_color=tf2Trend > 0 ? color.lime : (tf2Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
     
-    // TF3
+    // TF3 - Enhanced colors for dark theme  
     if showTF3
         tf3Structure = tf3MSS != "" ? tf3MSS : "-"
         tf3TrendSymbol = tf3Trend > 0 ? "↑" : (tf3Trend < 0 ? "↓" : "-")
-        table.cell(structureTable, 0, 3, tf3, text_color=color.black, text_size=size.tiny)
-        table.cell(structureTable, 1, 3, tf3Structure, text_color=tf3Trend > 0 ? color.green : (tf3Trend < 0 ? color.red : color.gray), text_size=size.tiny)
-        table.cell(structureTable, 2, 3, tf3TrendSymbol, text_color=tf3Trend > 0 ? color.green : (tf3Trend < 0 ? color.red : color.gray), text_size=size.tiny)
+        table.cell(structureTable, 0, 3, tf3, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 1, 3, tf3Structure, text_color=tf3Trend > 0 ? color.lime : (tf3Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
+        table.cell(structureTable, 2, 3, tf3TrendSymbol, text_color=tf3Trend > 0 ? color.lime : (tf3Trend < 0 ? color.red : color.silver), text_size=size.tiny, bgcolor=color.new(color.black, 30))
 
 // =============================================================================
 // ALERTS (SIMPLIFIED)
