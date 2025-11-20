@@ -1,0 +1,450 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo - Modified for Strategy
+
+//@version=5
+strategy("ICT Strategy [LuxAlgo]", shorttitle="ICT Strategy", overlay=true, 
+         default_qty_type=strategy.percent_of_equity, default_qty_value=10, 
+         initial_capital=10000, currency=currency.USD, 
+         commission_type=strategy.commission.percent, commission_value=0.1)
+
+//-----------------------------------------------------------------------------}
+//Strategy Settings
+//-----------------------------------------------------------------------------{
+// Risk Management
+riskPercent = input.float(2.0, "Risk Per Trade (%)", minval=0.1, maxval=10, step=0.1, group="Risk Management")
+riskReward = input.float(2.0, "Risk:Reward Ratio", minval=1.0, maxval=5.0, step=0.1, group="Risk Management")
+maxPositions = input.int(1, "Max Concurrent Positions", minval=1, maxval=3, group="Risk Management")
+
+// Strategy Filters
+useOB = input.bool(true, "Use Order Block Signals", group="Strategy Filters")
+useFVG = input.bool(true, "Use Fair Value Gap Signals", group="Strategy Filters")
+useMSS = input.bool(true, "Use Market Structure Signals", group="Strategy Filters")
+useLiquidity = input.bool(false, "Use Liquidity Signals", group="Strategy Filters")
+
+// Time Filter
+useTimeFilter = input.bool(true, "Use Time Filter", group="Time Filter")
+startTime = input.session("0800-1600", "Trading Session", group="Time Filter")
+
+// Liquidity Settings  
+liqMargin = input.float(4.0, "Liquidity Margin", minval=2.0, maxval=7.0, step=0.1, group="Liquidity Settings")
+visLiquidity = input.int(2, "Visible Liquidity Boxes", minval=1, maxval=5, group="Liquidity Settings")
+cLIQ_B = input.color(color.new(#fa451c, 0), "Buyside Liquidity Color", group="Liquidity Settings")
+cLIQ_S = input.color(color.new(#1ce4fa, 0), "Sellside Liquidity Color", group="Liquidity Settings")
+
+//-----------------------------------------------------------------------------}
+//Original ICT Settings (simplified)
+//-----------------------------------------------------------------------------{
+// Market Structure
+len = input.int(5, title='Structure Length', group='ICT Settings', minval=3, maxval=10)
+showBull = input.int(1, title='Bullish OB Count', group='ICT Settings', minval=0)
+showBear = input.int(1, title='Bearish OB Count', group='ICT Settings', minval=0)
+length = input.int(10, title='Swing Lookback', group='ICT Settings', minval=3)
+useBody = input.bool(true, title='Use Candle Body', group='ICT Settings')
+
+// Colors
+bullCss = input.color(color.new(#3e89fa, 0), title='Bullish Color', group='ICT Settings')
+bearCss = input.color(color.new(#FF3131, 0), title='Bearish Color', group='ICT Settings')
+
+//-----------------------------------------------------------------------------}
+//Variables and Types
+//-----------------------------------------------------------------------------{
+type swing
+    float y = na
+    int x = na
+    bool crossed = false
+
+type ob
+    float top = na
+    float btm = na
+    int loc = bar_index
+    bool breaker = false
+    int break_loc = na
+    bool isValid = true
+
+type signal
+    string type = na
+    string direction = na
+    float entry = na
+    float sl = na
+    float tp = na
+    int timestamp = na
+
+type liq
+    box bx
+    line ln
+    bool broken = false
+    bool brokenTop = false
+    bool brokenBtm = false
+    float level = na
+    string side = na
+
+var ob[] bullish_ob = array.new<ob>()
+var ob[] bearish_ob = array.new<ob>()
+var signal[] active_signals = array.new<signal>()
+var liq[] buyside_liq = array.new<liq>()
+var liq[] sellside_liq = array.new<liq>()
+
+// General calculations
+n = bar_index
+hi = high
+lo = low
+atr = ta.atr(10)
+mx = math.max(close, open)
+mn = math.min(close, open)
+body = math.abs(close - open)
+meanBody = ta.sma(body, len)
+max = useBody ? mx : high
+min = useBody ? mn : low
+
+// Displacement detection
+perc_Body = 0.36
+L_body = high - mx < body * perc_Body and mn - low < body * perc_Body
+L_bodyUP = body > meanBody and L_body and close > open
+L_bodyDN = body > meanBody and L_body and close < open
+
+//-----------------------------------------------------------------------------}
+//Functions
+//-----------------------------------------------------------------------------{
+swings(len) =>
+    var os = 0
+    var swing top = swing.new(na, na)
+    var swing btm = swing.new(na, na)
+
+    upper = ta.highest(len)
+    lower = ta.lowest(len)
+
+    os := high[len] > upper ? 0 : low[len] < lower ? 1 : os
+
+    if os == 0 and os[1] != 0
+        top := swing.new(high[length], bar_index[length])
+
+    if os == 1 and os[1] != 1
+        btm := swing.new(low[length], bar_index[length])
+
+    [top, btm]
+
+isInSession() =>
+    not useTimeFilter or not na(time(timeframe.period, startTime))
+
+calculatePositionSize(riskAmount, stopDistance) =>
+    if stopDistance > 0
+        math.min(riskAmount / stopDistance, strategy.equity * 0.1 / close)
+    else
+        0
+
+//-----------------------------------------------------------------------------}
+//Market Structure and Order Block Detection
+//-----------------------------------------------------------------------------{
+[top, btm] = swings(length)
+
+// Order Block Detection (Bullish)
+if useOB and close > top.y and not top.crossed
+    top.crossed := true
+    
+    minima = max[1]
+    maxima = min[1]
+    loc = bar_index[1]
+    
+    for i = 1 to (n - top.x) - 1
+        minima := math.min(min[i], minima)
+        maxima := minima == min[i] ? max[i] : maxima
+        loc := minima == min[i] ? bar_index[i] : loc
+    
+    bullish_ob.unshift(ob.new(maxima, minima, loc, false, na, true))
+
+// Order Block Detection (Bearish)
+if useOB and close < btm.y and not btm.crossed
+    btm.crossed := true
+    
+    minima = min[1]
+    maxima = max[1]
+    loc = bar_index[1]
+    
+    for i = 1 to (n - btm.x) - 1
+        maxima := math.max(max[i], maxima)
+        minima := maxima == max[i] ? min[i] : minima
+        loc := maxima == max[i] ? bar_index[i] : loc
+    
+    bearish_ob.unshift(ob.new(maxima, minima, loc, false, na, true))
+
+// Clean up old Order Blocks
+if bullish_ob.size() > 0
+    for i = bullish_ob.size() - 1 to 0
+        element = bullish_ob.get(i)
+        if not element.breaker
+            if math.min(close, open) < element.btm
+                element.breaker := true
+                element.break_loc := bar_index
+        else
+            if close > element.top or bar_index - element.loc > 100
+                bullish_ob.remove(i)
+
+if bearish_ob.size() > 0
+    for i = bearish_ob.size() - 1 to 0
+        element = bearish_ob.get(i)
+        if not element.breaker
+            if math.max(close, open) > element.top
+                element.breaker := true
+                element.break_loc := bar_index
+        else
+            if close < element.btm or bar_index - element.loc > 100
+                bearish_ob.remove(i)
+
+//-----------------------------------------------------------------------------}
+//Fair Value Gap Detection
+//-----------------------------------------------------------------------------{
+// FVG Bullish
+imbalanceUP = L_bodyUP[1] and low > high[2]
+// FVG Bearish  
+imbalanceDN = L_bodyDN[1] and high < low[2]
+
+//-----------------------------------------------------------------------------}
+//Liquidity Detection
+//-----------------------------------------------------------------------------{
+// Pivot detection for liquidity
+ph = ta.pivothigh(hi, len, 1)
+pl = ta.pivotlow(lo, len, 1)
+
+// Buyside Liquidity Detection (above swing highs)
+if ph and useLiquidity
+    count = 0
+    level = ph
+    startBar = bar_index[len + 1]
+    
+    // Look for confluence of swing highs
+    for i = 1 to 50
+        if i < bar_index
+            pivotHigh = ta.pivothigh(hi, len, i)
+            if not na(pivotHigh) and math.abs(pivotHigh - ph) < atr / liqMargin
+                count += 1
+                level := math.avg(level, pivotHigh)
+    
+    if count >= 1  // At least 2 swing highs in confluence
+        liq_box = box.new(startBar, level + atr/liqMargin, bar_index + 20, level - atr/liqMargin, bgcolor=color.new(cLIQ_B, 90), border_color=color.new(cLIQ_B, 0), text="Buyside Liquidity", text_size=size.tiny, text_color=color.new(cLIQ_B, 0))
+        liq_line = line.new(startBar, level, bar_index + 20, level, color=color.new(cLIQ_B, 0), style=line.style_dashed)
+        buyside_liq.unshift(liq.new(liq_box, liq_line, false, false, false, level, "buy"))
+        
+        if buyside_liq.size() > visLiquidity
+            old_liq = buyside_liq.pop()
+            old_liq.bx.delete()
+            old_liq.ln.delete()
+
+// Sellside Liquidity Detection (below swing lows)
+if pl and useLiquidity
+    count = 0
+    level = pl
+    startBar = bar_index[len + 1]
+    
+    // Look for confluence of swing lows
+    for i = 1 to 50
+        if i < bar_index
+            pivotLow = ta.pivotlow(lo, len, i)
+            if not na(pivotLow) and math.abs(pivotLow - pl) < atr / liqMargin
+                count += 1
+                level := math.avg(level, pivotLow)
+    
+    if count >= 1  // At least 2 swing lows in confluence
+        liq_box = box.new(startBar, level + atr/liqMargin, bar_index + 20, level - atr/liqMargin, bgcolor=color.new(cLIQ_S, 90), border_color=color.new(cLIQ_S, 0), text="Sellside Liquidity", text_size=size.tiny, text_color=color.new(cLIQ_S, 0))
+        liq_line = line.new(startBar, level, bar_index + 20, level, color=color.new(cLIQ_S, 0), style=line.style_dashed)
+        sellside_liq.unshift(liq.new(liq_box, liq_line, false, false, false, level, "sell"))
+        
+        if sellside_liq.size() > visLiquidity
+            old_liq = sellside_liq.pop()
+            old_liq.bx.delete()
+            old_liq.ln.delete()
+
+// Update liquidity boxes and detect sweeps
+if buyside_liq.size() > 0
+    for i = 0 to buyside_liq.size() - 1
+        liq_item = buyside_liq.get(i)
+        if not na(liq_item.level) and not liq_item.broken
+            liq_item.bx.set_right(bar_index + 20)
+            liq_item.ln.set_x2(bar_index + 20)
+            
+            // Check for liquidity sweep (price goes above then reverses)
+            if high >= liq_item.level
+                liq_item.brokenTop := true
+            if liq_item.brokenTop and close < liq_item.level - atr * 0.5
+                liq_item.broken := true
+                liq_item.bx.set_bgcolor(color.new(cLIQ_B, 95))
+                liq_item.bx.set_right(bar_index)
+
+if sellside_liq.size() > 0
+    for i = 0 to sellside_liq.size() - 1
+        liq_item = sellside_liq.get(i)
+        if not na(liq_item.level) and not liq_item.broken
+            liq_item.bx.set_right(bar_index + 20)
+            liq_item.ln.set_x2(bar_index + 20)
+            
+            // Check for liquidity sweep (price goes below then reverses)
+            if low <= liq_item.level
+                liq_item.brokenBtm := true
+            if liq_item.brokenBtm and close > liq_item.level + atr * 0.5
+                liq_item.broken := true
+                liq_item.bx.set_bgcolor(color.new(cLIQ_S, 95))
+                liq_item.bx.set_right(bar_index)
+
+//-----------------------------------------------------------------------------}
+//Signal Generation
+//-----------------------------------------------------------------------------{
+// Bullish Signals
+bullish_ob_signal = false
+bullish_fvg_signal = false
+bullish_liq_signal = false
+
+if useOB and bullish_ob.size() > 0
+    latest_bull_ob = bullish_ob.get(0)
+    if not na(latest_bull_ob.top) and not na(latest_bull_ob.btm) and not latest_bull_ob.breaker and close >= latest_bull_ob.btm and close <= latest_bull_ob.top
+        if low <= latest_bull_ob.btm * 1.002 // Small tolerance for entry
+            bullish_ob_signal := true
+
+if useFVG and imbalanceUP
+    bullish_fvg_signal := true
+
+// Liquidity Hunt Signal - Bullish (Sellside liquidity swept)
+if useLiquidity and sellside_liq.size() > 0
+    for i = 0 to sellside_liq.size() - 1
+        liq_item = sellside_liq.get(i)
+        // Signal when sellside liquidity is swept and price reverses bullish
+        if not na(liq_item.level) and liq_item.brokenBtm and not liq_item.broken and close > liq_item.level + atr * 0.3
+            if ta.change(close, 1) > 0 and volume > ta.sma(volume, 20) * 1.2
+                bullish_liq_signal := true
+                break
+
+// Bearish Signals
+bearish_ob_signal = false
+bearish_fvg_signal = false
+bearish_liq_signal = false
+
+if useOB and bearish_ob.size() > 0
+    latest_bear_ob = bearish_ob.get(0)
+    if not na(latest_bear_ob.top) and not na(latest_bear_ob.btm) and not latest_bear_ob.breaker and close >= latest_bear_ob.btm and close <= latest_bear_ob.top
+        if high >= latest_bear_ob.top * 0.998 // Small tolerance for entry
+            bearish_ob_signal := true
+
+if useFVG and imbalanceDN
+    bearish_fvg_signal := true
+
+// Liquidity Hunt Signal - Bearish (Buyside liquidity swept)
+if useLiquidity and buyside_liq.size() > 0
+    for i = 0 to buyside_liq.size() - 1
+        liq_item = buyside_liq.get(i)
+        // Signal when buyside liquidity is swept and price reverses bearish
+        if not na(liq_item.level) and liq_item.brokenTop and not liq_item.broken and close < liq_item.level - atr * 0.3
+            if ta.change(close, 1) < 0 and volume > ta.sma(volume, 20) * 1.2
+                bearish_liq_signal := true
+                break
+
+// Combined signals
+long_signal = (bullish_ob_signal or bullish_fvg_signal or bullish_liq_signal) and isInSession()
+short_signal = (bearish_ob_signal or bearish_fvg_signal or bearish_liq_signal) and isInSession()
+
+//-----------------------------------------------------------------------------}
+//Strategy Execution
+//-----------------------------------------------------------------------------{
+// Risk calculation
+riskAmount = strategy.equity * riskPercent / 100
+
+// Long Entry
+if long_signal and strategy.position_size == 0 and strategy.opentrades < maxPositions
+    entry_price = close
+    stop_loss = 0.0
+    
+    if bullish_ob_signal and bullish_ob.size() > 0
+        latest_ob = bullish_ob.get(0)
+        if not na(latest_ob.btm)
+            stop_loss := latest_ob.btm - atr * 0.5
+    else if bullish_fvg_signal
+        stop_loss := low[2] - atr * 0.5
+    else if bullish_liq_signal and sellside_liq.size() > 0
+        // Find the most recent swept sellside liquidity
+        for i = 0 to sellside_liq.size() - 1
+            liq_item = sellside_liq.get(i)
+            if liq_item.brokenBtm and not liq_item.broken
+                stop_loss := liq_item.level - atr * 0.5
+                break
+    else
+        stop_loss := close - atr * 2
+    
+    stop_distance = entry_price - stop_loss
+    take_profit = entry_price + (stop_distance * riskReward)
+    
+    if stop_distance > 0
+        pos_size = calculatePositionSize(riskAmount, stop_distance)
+        if pos_size > 0
+            strategy.entry("Long", strategy.long, qty=pos_size)
+            strategy.exit("Long Exit", "Long", stop=stop_loss, limit=take_profit)
+
+// Short Entry
+if short_signal and strategy.position_size == 0 and strategy.opentrades < maxPositions
+    entry_price = close
+    stop_loss = 0.0
+    
+    if bearish_ob_signal and bearish_ob.size() > 0
+        latest_ob = bearish_ob.get(0)
+        if not na(latest_ob.top)
+            stop_loss := latest_ob.top + atr * 0.5
+    else if bearish_fvg_signal
+        stop_loss := high[2] + atr * 0.5
+    else if bearish_liq_signal and buyside_liq.size() > 0
+        // Find the most recent swept buyside liquidity
+        for i = 0 to buyside_liq.size() - 1
+            liq_item = buyside_liq.get(i)
+            if liq_item.brokenTop and not liq_item.broken
+                stop_loss := liq_item.level + atr * 0.5
+                break
+    else
+        stop_loss := close + atr * 2
+    
+    stop_distance = stop_loss - entry_price
+    take_profit = entry_price - (stop_distance * riskReward)
+    
+    if stop_distance > 0
+        pos_size = calculatePositionSize(riskAmount, stop_distance)
+        if pos_size > 0
+            strategy.entry("Short", strategy.short, qty=pos_size)
+            strategy.exit("Short Exit", "Short", stop=stop_loss, limit=take_profit)
+
+//-----------------------------------------------------------------------------}
+//Visualization
+//-----------------------------------------------------------------------------{
+// Plot Order Blocks
+if useOB and bullish_ob.size() > 0
+    latest_bull_ob = bullish_ob.get(0)
+    if not latest_bull_ob.breaker and bar_index - latest_bull_ob.loc < 50
+        bullish_ob_box = box.new(latest_bull_ob.loc, latest_bull_ob.top, bar_index + 10, latest_bull_ob.btm, bgcolor=color.new(bullCss, 85), border_color=color.new(bullCss, 0))
+
+if useOB and bearish_ob.size() > 0
+    latest_bear_ob = bearish_ob.get(0)
+    if not latest_bear_ob.breaker and bar_index - latest_bear_ob.loc < 50
+        bearish_ob_box = box.new(latest_bear_ob.loc, latest_bear_ob.top, bar_index + 10, latest_bear_ob.btm, bgcolor=color.new(bearCss, 85), border_color=color.new(bearCss, 0))
+
+// Plot signals
+plotshape(long_signal and bullish_liq_signal, title="Long Liquidity Signal", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white, text="LONG\nLIQ")
+plotshape(long_signal and not bullish_liq_signal, title="Long Signal", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white, text="LONG")
+plotshape(short_signal and bearish_liq_signal, title="Short Liquidity Signal", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, text="SHORT\nLIQ")
+plotshape(short_signal and not bearish_liq_signal, title="Short Signal", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, text="SHORT")
+
+// Plot FVG
+bgcolor(imbalanceUP and useFVG ? color.new(color.green, 90) : na, title="Bullish FVG")
+bgcolor(imbalanceDN and useFVG ? color.new(color.red, 90) : na, title="Bearish FVG")
+
+// Plot Liquidity Hunt signals
+plotshape(bullish_liq_signal, title="Liquidity Hunt Long", style=shape.triangleup, location=location.belowbar, color=color.new(color.blue, 0), size=size.small)
+plotshape(bearish_liq_signal, title="Liquidity Hunt Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.orange, 0), size=size.small)
+
+//-----------------------------------------------------------------------------}
+//Alerts
+//-----------------------------------------------------------------------------{
+alertcondition(long_signal and bullish_liq_signal, title="ICT Long Liquidity Hunt", message="ICT Strategy: Long signal detected - Liquidity Hunt")
+alertcondition(long_signal and bullish_ob_signal and not bullish_liq_signal, title="ICT Long Order Block", message="ICT Strategy: Long signal detected - Order Block")
+alertcondition(long_signal and bullish_fvg_signal and not bullish_liq_signal and not bullish_ob_signal, title="ICT Long Fair Value Gap", message="ICT Strategy: Long signal detected - Fair Value Gap")
+
+alertcondition(short_signal and bearish_liq_signal, title="ICT Short Liquidity Hunt", message="ICT Strategy: Short signal detected - Liquidity Hunt")
+alertcondition(short_signal and bearish_ob_signal and not bearish_liq_signal, title="ICT Short Order Block", message="ICT Strategy: Short signal detected - Order Block")
+alertcondition(short_signal and bearish_fvg_signal and not bearish_liq_signal and not bearish_ob_signal, title="ICT Short Fair Value Gap", message="ICT Strategy: Short signal detected - Fair Value Gap")
+               
+alertcondition(bullish_liq_signal, title="Bullish Liquidity Hunt", message="ICT Strategy: Sellside liquidity swept - Bullish reversal expected")
+alertcondition(bearish_liq_signal, title="Bearish Liquidity Hunt", message="ICT Strategy: Buyside liquidity swept - Bearish reversal expected")
+
+//-----------------------------------------------------------------------------}
