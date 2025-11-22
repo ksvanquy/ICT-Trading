@@ -1,0 +1,82 @@
+//@version=6
+indicator("ICT Liquidity Detector (Fixed Compact)", shorttitle="ICT Liquidity", overlay=true)
+
+// Inputs
+leftBars = input.int(3, "Pivot Left Bars", minval=1)
+rightBars = input.int(3, "Pivot Right Bars", minval=1)
+liquidityExtension = input.int(100, "Liquidity Line Length", minval=1)
+liquiditySweptExtension = input.int(10, "Swept Line Length", minval=1)
+debugMode = input.bool(true, "Show Pivot Debug Shapes")
+
+// Pivots
+pivotHighPrice = ta.pivothigh(high, leftBars, rightBars)
+pivotLowPrice  = ta.pivotlow(low, leftBars, rightBars)
+
+isPivotHigh = not na(pivotHighPrice)
+isPivotLow  = not na(pivotLowPrice)
+
+// Debug shape
+plotshape(debugMode and isPivotHigh ? high : na, style=shape.triangledown, color=color.lime, location=location.abovebar, size=size.small)
+plotshape(debugMode and isPivotLow ? low : na, style=shape.triangleup,   color=color.red, location=location.belowbar, size=size.small)
+
+// Arrays
+var buyLines  = array.new_line()
+var buyLabels = array.new_label()
+var sellLines  = array.new_line()
+var sellLabels = array.new_label()
+
+// ------------------- BSL -------------------
+if isPivotHigh
+    p = pivotHighPrice
+    idx = bar_index - rightBars
+
+    lineBSL = line.new(idx, p, idx + liquidityExtension, p, extend=extend.none, color=color.new(#00FFFF, 20), style=line.style_dashed, width=1)
+    labelBSL = label.new(idx, p, "BSL", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_right, color=color.new(#00FFFF, 50), textcolor=color.white, size=size.small)
+
+    array.push(buyLines, lineBSL)
+    array.push(buyLabels, labelBSL)
+
+// ------------------- SSL -------------------
+if isPivotLow
+    p = pivotLowPrice
+    idx = bar_index - rightBars
+
+    lineSSL = line.new(idx, p, idx + liquidityExtension, p, extend=extend.none, color=color.new(#FF00FF, 20), style=line.style_dashed, width=1)
+    labelSSL = label.new(idx, p, "SSL", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_right, color=color.new(#FF00FF, 50), textcolor=color.white, size=size.small)
+
+    array.push(sellLines, lineSSL)
+    array.push(sellLabels, labelSSL)
+
+// ------------------- Sweep BSL -------------------
+if array.size(buyLines) > 0
+    for i = array.size(buyLines) - 1 to 0
+        ln = array.get(buyLines, i)
+        lb = array.get(buyLabels, i)
+        price = line.get_price(ln, line.get_x1(ln))
+
+        if high[1] > price
+            line.set_color(ln, color.new(color.gray, 50))
+            line.set_style(ln, line.style_solid)
+            line.set_width(ln, 2)
+            line.set_x2(ln, bar_index + liquiditySweptExtension)
+            label.set_text(lb, "BSL SWEPT")
+            label.set_color(lb, color.new(color.gray, 70))
+            array.remove(buyLines, i)
+            array.remove(buyLabels, i)
+
+// ------------------- Sweep SSL -------------------
+if array.size(sellLines) > 0
+    for i = array.size(sellLines) - 1 to 0
+        ln = array.get(sellLines, i)
+        lb = array.get(sellLabels, i)
+        price = line.get_price(ln, line.get_x1(ln))
+
+        if low[1] < price
+            line.set_color(ln, color.new(color.gray, 50))
+            line.set_style(ln, line.style_solid)
+            line.set_width(ln, 2)
+            line.set_x2(ln, bar_index + liquiditySweptExtension)
+            label.set_text(lb, "SSL SWEPT")
+            label.set_color(lb, color.new(color.gray, 70))
+            array.remove(sellLines, i)
+            array.remove(sellLabels, i)
