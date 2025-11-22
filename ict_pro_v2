@@ -1,0 +1,152 @@
+//@version=6
+indicator("ICT PRO – Liquidity + BOS/CHOCH + FVG + OB (Fixed Types)", shorttitle="ICT PRO", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// =============================================================================================
+// SECTION A – INPUTS
+// =============================================================================================
+grp_pivot = "A. Pivot Settings"
+grp_fvg   = "B. FVG Settings"
+grp_ob    = "C. Order Block Settings"
+grp_bos   = "D. BOS/CHOCH Settings"
+
+leftBars  = input.int(2, "Pivot Left Bars", minval=1, group=grp_pivot)
+rightBars = input.int(2, "Pivot Right Bars", minval=1, group=grp_pivot)
+
+fvgMin    = input.float(0.0, "Min Gap Size", group=grp_fvg)
+fvgExtend = input.int(20, "Extend Bars", group=grp_fvg)
+
+obLookback = input.int(20, "OB Lookback", group=grp_ob)
+obExtend   = input.int(20, "OB Extend", group=grp_ob)
+
+bosSwing = input.int(3, "Structure Swing Size", group=grp_bos)
+
+debug = input.bool(true, "Show Pivot Debug")
+
+// =============================================================================================
+// SECTION B – PIVOT MODULE
+// =============================================================================================
+ph = ta.pivothigh(high, leftBars, rightBars)
+pl = ta.pivotlow(low, leftBars, rightBars)
+
+isPH = not na(ph)
+isPL = not na(pl)
+
+// Debug plot
+plotshape(debug and isPH, title="PH", style=shape.triangledown, color=color.new(color.lime, 0), size=size.tiny, location=location.abovebar)
+plotshape(debug and isPL, title="PL", style=shape.triangleup,   color=color.new(color.red, 0), size=size.tiny, location=location.belowbar)
+
+// =============================================================================================
+// SECTION C – LIQUIDITY MODULE (BSL/SSL)
+// =============================================================================================
+var bslLines  = array.new_line()
+var sslLines  = array.new_line()
+var bslLabels = array.new_label()
+var sslLabels = array.new_label()
+liqExtend = 100
+liqSweepExtend = 20
+
+// Draw BSL
+if isPH
+    px = ph
+    bi = bar_index - rightBars
+    ln = line.new(bi, px, bi + liqExtend, px, color=color.new(#00FFFF, 20), style=line.style_dashed)
+    lb = label.new(bi, px, "BSL", style=label.style_label_right, color=color.new(#00FFFF, 50), textcolor=color.white)
+    array.push(bslLines, ln)
+    array.push(bslLabels, lb)
+
+// Draw SSL
+if isPL
+    px = pl
+    bi = bar_index - rightBars
+    ln = line.new(bi, px, bi + liqExtend, px, color=color.new(#FF00FF, 20), style=line.style_dashed)
+    lb = label.new(bi, px, "SSL", style=label.style_label_right, color=color.new(#FF00FF, 50), textcolor=color.white)
+    array.push(sslLines, ln)
+    array.push(sslLabels, lb)
+
+// Sweep BSL
+if array.size(bslLines) > 0
+    for i = array.size(bslLines) - 1 to 0
+        ln = array.get(bslLines, i)
+        lb = array.get(bslLabels, i)
+        px = line.get_price(ln, line.get_x1(ln))
+        if high[1] > px
+            line.set_color(ln, color.gray)
+            line.set_style(ln, line.style_solid)
+            line.set_x2(ln, bar_index + liqSweepExtend)
+            label.set_text(lb, "BSL SWEPT")
+            array.remove(bslLines, i)
+            array.remove(bslLabels, i)
+
+// Sweep SSL
+if array.size(sslLines) > 0
+    for i = array.size(sslLines) - 1 to 0
+        ln = array.get(sslLines, i)
+        lb = array.get(sslLabels, i)
+        px = line.get_price(ln, line.get_x1(ln))
+        if low[1] < px
+            line.set_color(ln, color.gray)
+            line.set_style(ln, line.style_solid)
+            line.set_x2(ln, bar_index + liqSweepExtend)
+            label.set_text(lb, "SSL SWEPT")
+            array.remove(sslLines, i)
+            array.remove(sslLabels, i)
+
+// =============================================================================================
+// SECTION D – BOS / CHOCH MODULE
+// =============================================================================================
+// FIX: khai báo kiểu cho lastHigh/lastLow (float)
+var float lastHigh = na
+var float lastLow  = na
+
+// Cập nhật lastHigh / lastLow từ pivot (giá pivot đã là float)
+if isPH
+    lastHigh := ph
+if isPL
+    lastLow := pl
+
+// BOS detection (đơn giản)
+bosUp = not na(lastLow) and close > lastLow
+bosDn = not na(lastHigh) and close < lastHigh
+
+plotshape(bosUp, title="BOS Up", style=shape.labelup, text="BOS↑", color=color.new(color.green, 0), location=location.belowbar, size=size.tiny)
+plotshape(bosDn, title="BOS Down", style=shape.labeldown, text="BOS↓", color=color.new(color.red, 0), location=location.abovebar, size=size.tiny)
+
+// CHOCH detection (dùng pivot và price close)
+chochUp = isPH and close > ph
+chochDn = isPL and close < pl
+
+plotshape(chochUp, title="CHOCH Up", style=shape.labelup, text="CHOCH↑", color=color.new(color.green, 60), location=location.belowbar, size=size.tiny)
+plotshape(chochDn, title="CHOCH Down", style=shape.labeldown, text="CHOCH↓", color=color.new(color.red, 60), location=location.abovebar, size=size.tiny)
+
+// =============================================================================================
+// SECTION E – FVG MODULE
+// =============================================================================================
+isBullFVG = low[2] > high[0]
+isBearFVG = high[2] < low[0]
+
+if isBullFVG
+    fvgTop = low[2]
+    fvgBot = high[0]
+    box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor=color.new(color.green, 85))
+
+if isBearFVG
+    fvgTop = low[0]
+    fvgBot = high[2]
+    box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor=color.new(color.red, 85))
+
+// =============================================================================================
+// SECTION F – ORDER BLOCK MODULE (Bull/Bear OB Confirmed)
+// =============================================================================================
+// Simple OB confirmation: pivot + bos
+obBull = isPL and bosUp
+obBear = isPH and bosDn
+
+if obBull
+    obH = high[1]
+    obL = low[1]
+    box.new(bar_index - 1, obH, bar_index + obExtend, obL, bgcolor=color.new(color.green, 80), border_color=color.green)
+
+if obBear
+    obH = high[1]
+    obL = low[1]
+    box.new(bar_index - 1, obH, bar_index + obExtend, obL, bgcolor=color.new(color.red, 80), border_color=color.red)
