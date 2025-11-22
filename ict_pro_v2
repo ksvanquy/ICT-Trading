@@ -1,30 +1,31 @@
 //@version=6
-indicator("ICT PRO – Liquidity + BOS/CHOCH + FVG + OB (Fixed Types)", shorttitle="ICT PRO", overlay=true, max_lines_count=500, max_labels_count=500)
+indicator("ICT PRO – Liquidity + BOS/CHOCH + FVG + OB (Final)", shorttitle="ICT PRO", overlay=true, max_lines_count=500, max_labels_count=500)
 
 // =============================================================================================
 // SECTION A – INPUTS
 // =============================================================================================
 grp_pivot = "A. Pivot Settings"
-grp_fvg   = "B. FVG Settings"
-grp_ob    = "C. Order Block Settings"
-grp_bos   = "D. BOS/CHOCH Settings"
+grp_fvg  = "B. FVG Settings"
+grp_ob = "C. Order Block Settings"
+grp_bos = "D. BOS/CHOCH Settings"
 
-leftBars  = input.int(2, "Pivot Left Bars", minval=1, group=grp_pivot)
+leftBars = input.int(2, "Pivot Left Bars", minval=1, group=grp_pivot)
 rightBars = input.int(2, "Pivot Right Bars", minval=1, group=grp_pivot)
 
-fvgMin    = input.float(0.0, "Min Gap Size", group=grp_fvg)
+fvgMin = input.float(0.0, "Min Gap Size", group=grp_fvg)
 fvgExtend = input.int(20, "Extend Bars", group=grp_fvg)
 
-obLookback = input.int(20, "OB Lookback", group=grp_ob)
-obExtend   = input.int(20, "OB Extend", group=grp_ob)
+obLookback = input.int(20, "OB Lookback", group=grp_ob) // Không sử dụng trong phiên bản đơn giản này
+obExtend = input.int(20, "OB Extend", group=grp_ob)
 
-bosSwing = input.int(3, "Structure Swing Size", group=grp_bos)
+bosSwing = input.int(3, "Structure Swing Size", minval=1, group=grp_bos)
 
 debug = input.bool(true, "Show Pivot Debug")
 
 // =============================================================================================
 // SECTION B – PIVOT MODULE
 // =============================================================================================
+// ta.pivothigh/pivotlow chỉ trả về giá trị trên thanh xác nhận (bar_index)
 ph = ta.pivothigh(high, leftBars, rightBars)
 pl = ta.pivotlow(low, leftBars, rightBars)
 
@@ -33,13 +34,13 @@ isPL = not na(pl)
 
 // Debug plot
 plotshape(debug and isPH, title="PH", style=shape.triangledown, color=color.new(color.lime, 0), size=size.tiny, location=location.abovebar)
-plotshape(debug and isPL, title="PL", style=shape.triangleup,   color=color.new(color.red, 0), size=size.tiny, location=location.belowbar)
+plotshape(debug and isPL, title="PL", style=shape.triangleup, color=color.new(color.red, 0), size=size.tiny, location=location.belowbar)
 
 // =============================================================================================
 // SECTION C – LIQUIDITY MODULE (BSL/SSL)
 // =============================================================================================
-var bslLines  = array.new_line()
-var sslLines  = array.new_line()
+var bslLines = array.new_line()
+var sslLines = array.new_line()
 var bslLabels = array.new_label()
 var sslLabels = array.new_label()
 liqExtend = 100
@@ -47,7 +48,8 @@ liqSweepExtend = 20
 
 // Draw BSL
 if isPH
-    px = ph
+    // Tham chiếu về thanh nến tại nơi Pivot High được tạo
+    px = high[rightBars]
     bi = bar_index - rightBars
     ln = line.new(bi, px, bi + liqExtend, px, color=color.new(#00FFFF, 20), style=line.style_dashed)
     lb = label.new(bi, px, "BSL", style=label.style_label_right, color=color.new(#00FFFF, 50), textcolor=color.white)
@@ -56,7 +58,8 @@ if isPH
 
 // Draw SSL
 if isPL
-    px = pl
+    // Tham chiếu về thanh nến tại nơi Pivot Low được tạo
+    px = low[rightBars]
     bi = bar_index - rightBars
     ln = line.new(bi, px, bi + liqExtend, px, color=color.new(#FF00FF, 20), style=line.style_dashed)
     lb = label.new(bi, px, "SSL", style=label.style_label_right, color=color.new(#FF00FF, 50), textcolor=color.white)
@@ -68,7 +71,10 @@ if array.size(bslLines) > 0
     for i = array.size(bslLines) - 1 to 0
         ln = array.get(bslLines, i)
         lb = array.get(bslLabels, i)
+        // Lỗi: line.get_price cần tham số X. Đã sửa trong các phiên bản trước.
         px = line.get_price(ln, line.get_x1(ln))
+        
+        // Kiểm tra quét thanh khoản bằng high/low của thanh N-1
         if high[1] > px
             line.set_color(ln, color.gray)
             line.set_style(ln, line.style_solid)
@@ -83,6 +89,7 @@ if array.size(sslLines) > 0
         ln = array.get(sslLines, i)
         lb = array.get(sslLabels, i)
         px = line.get_price(ln, line.get_x1(ln))
+        
         if low[1] < px
             line.set_color(ln, color.gray)
             line.set_style(ln, line.style_solid)
@@ -92,61 +99,75 @@ if array.size(sslLines) > 0
             array.remove(sslLabels, i)
 
 // =============================================================================================
-// SECTION D – BOS / CHOCH MODULE
+// SECTION D – BOS / CHOCH MODULE (Đã sửa lỗi valuewhen không chạy trên mọi bar)
 // =============================================================================================
-// FIX: khai báo kiểu cho lastHigh/lastLow (float)
-var float lastHigh = na
-var float lastLow  = na
 
-// Cập nhật lastHigh / lastLow từ pivot (giá pivot đã là float)
-if isPH
-    lastHigh := ph
-if isPL
-    lastLow := pl
+// Lưu Swing High/Low cho BOS
+swingHigh = ta.highest(high, bosSwing)
+swingLow  = ta.lowest(low, bosSwing)
 
-// BOS detection (đơn giản)
-bosUp = not na(lastLow) and close > lastLow
-bosDn = not na(lastHigh) and close < lastHigh
+// Lưu Pivot gần nhất để dùng cho CHOCH
+lastPH = ta.valuewhen(isPH, high, 1)
+lastPL = ta.valuewhen(isPL, low, 1)
 
-plotshape(bosUp, title="BOS Up", style=shape.labelup, text="BOS↑", color=color.new(color.green, 0), location=location.belowbar, size=size.tiny)
-plotshape(bosDn, title="BOS Down", style=shape.labeldown, text="BOS↓", color=color.new(color.red, 0), location=location.abovebar, size=size.tiny)
+// CHOCH – Đảo chiều cấu trúc
+isChochUp = isPL and not na(lastPH) and close > lastPH
+isChochDn = isPH and not na(lastPL) and close < lastPL
 
-// CHOCH detection (dùng pivot và price close)
-chochUp = isPH and close > ph
-chochDn = isPL and close < pl
+// BOS – Tiếp diễn cấu trúc
+isBosUp = not isChochUp and close > swingHigh
+isBosDn = not isChochDn and close < swingLow
 
-plotshape(chochUp, title="CHOCH Up", style=shape.labelup, text="CHOCH↑", color=color.new(color.green, 60), location=location.belowbar, size=size.tiny)
-plotshape(chochDn, title="CHOCH Down", style=shape.labeldown, text="CHOCH↓", color=color.new(color.red, 60), location=location.abovebar, size=size.tiny)
+// Hiển thị BOS/CHOCH
+plotshape(isBosUp, title="BOS Up", style=shape.labelup, text="BOS↑",
+     color=color.new(color.green, 0), location=location.belowbar, size=size.tiny)
+
+plotshape(isBosDn, title="BOS Down", style=shape.labeldown, text="BOS↓",
+     color=color.new(color.red, 0), location=location.abovebar, size=size.tiny)
+
+plotshape(isChochUp, title="CHOCH Up", style=shape.labelup, text="CHOCH↑",
+     color=color.new(color.lime, 50), location=location.belowbar, size=size.tiny)
+
+plotshape(isChochDn, title="CHOCH Down", style=shape.labeldown, text="CHOCH↓",
+     color=color.new(color.fuchsia, 50), location=location.abovebar, size=size.tiny)
 
 // =============================================================================================
-// SECTION E – FVG MODULE
+// SECTION E – FVG MODULE (Logic được sửa để Top > Bot và vẽ đúng)
 // =============================================================================================
 isBullFVG = low[2] > high[0]
 isBearFVG = high[2] < low[0]
 
 if isBullFVG
-    fvgTop = low[2]
-    fvgBot = high[0]
-    box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor=color.new(color.green, 85))
+    fvgTop = low[2] // Là giá trị cao hơn
+    fvgBot = high[0] // Là giá trị thấp hơn
+    // Kiểm tra kích thước tối thiểu
+    if fvgTop - fvgBot > fvgMin
+        box.new(bar_index - 2, fvgTop, bar_index + fvgExtend, fvgBot, bgcolor=color.new(color.green, 85), border_width=0)
 
 if isBearFVG
-    fvgTop = low[0]
-    fvgBot = high[2]
-    box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor=color.new(color.red, 85))
+    fvgTop = low[0] // Là giá trị cao hơn
+    fvgBot = high[2] // Là giá trị thấp hơn
+    // Kiểm tra kích thước tối thiểu
+    if fvgTop - fvgBot > fvgMin
+        box.new(bar_index - 2, fvgTop, bar_index + fvgExtend, fvgBot, bgcolor=color.new(color.red, 85), border_width=0)
+
 
 // =============================================================================================
 // SECTION F – ORDER BLOCK MODULE (Bull/Bear OB Confirmed)
 // =============================================================================================
-// Simple OB confirmation: pivot + bos
-obBull = isPL and bosUp
-obBear = isPH and bosDn
+// OB đơn giản được xác nhận khi có Pivot Low (Bull OB) hoặc Pivot High (Bear OB)
+// Nến OB là nến trước nến xác nhận Pivot.
+isObBull = isPL
+isObBear = isPH
 
-if obBull
-    obH = high[1]
-    obL = low[1]
-    box.new(bar_index - 1, obH, bar_index + obExtend, obL, bgcolor=color.new(color.green, 80), border_color=color.green)
+if isObBull
+    // Lấy giá High/Low của nến trước nến xác nhận Pivot (nến OB)
+    obH = high[rightBars + 1]
+    obL = low[rightBars + 1]
+    box.new(bar_index - (rightBars + 1), obH, bar_index + obExtend, obL, bgcolor=color.new(color.green, 80), border_color=color.green, border_width=1)
 
-if obBear
-    obH = high[1]
-    obL = low[1]
-    box.new(bar_index - 1, obH, bar_index + obExtend, obL, bgcolor=color.new(color.red, 80), border_color=color.red)
+if isObBear
+    // Lấy giá High/Low của nến trước nến xác nhận Pivot (nến OB)
+    obH = high[rightBars + 1]
+    obL = low[rightBars + 1]
+    box.new(bar_index - (rightBars + 1), obH, bar_index + obExtend, obL, bgcolor=color.new(color.red, 80), border_color=color.red, border_width=1)
